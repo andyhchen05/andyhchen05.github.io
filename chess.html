@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="chess.css">
+    <link href="https://fonts.googleapis.com/css2?family=Playwrite+US+Modern:wght@100..400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fascinate+Inline&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=WDXL+Lubrifont+TC&display=swap" rel="stylesheet">
+    <script src="https://kit.fontawesome.com/ef4c79f489.js" crossorigin="anonymous"></script>
+    <title>Chess vs AI</title>
+</head>
+
+<body>
+    <!--header-->
+    <header>
+        <div class="header-left">
+            <h1>the Andy Chen Experience</h1>
+            <div class="logo">華威</div>
+        </div>
+    </header>
+
+    <!--links-->
+    <nav>
+        <ul class="nav-menu">
+            <li>
+                <a href="index.html" target="_self" title="Home">
+                    <i class="fa-solid fa-house"></i> Home
+                </a>
+            </li>
+            <li>
+                <a href="projects.html" target="_self" title="Projects">
+                <i class="fa-solid fa-toolbox"></i> Projects
+                </a>
+            </li>
+            <li>
+                <a href="contact.html" target="_self" title="Contact">
+                    Contact
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <h2>Chess vs AI</h2>
+
+    <p style="max-width: 900px; margin-left: auto; margin-right: auto;">
+        A from-scratch chess engine, ported to Python from Gary Linscott's GarboChess-JS, running
+        entirely in your browser via WebAssembly (Pyodide) &mdash; no server involved. Legal move
+        generation, alpha-beta search with iterative deepening and a quiescence search, and a
+        classic material + piece-square-table evaluation. Click a piece, then click a highlighted
+        square to move.
+    </p>
+
+    <div class="chess-wrap">
+        <div id="board"></div>
+
+        <div class="chess-sidebar">
+            <h3>Game</h3>
+            <div id="status">Loading engine&hellip;</div>
+
+            <div class="chess-controls">
+                <label>
+                    Play as
+                    <select id="side-select">
+                        <option value="white" selected>White</option>
+                        <option value="black">Black</option>
+                    </select>
+                </label>
+                <label>
+                    Engine strength
+                    <select id="strength-select">
+                        <option value="fast">Fast (weaker)</option>
+                        <option value="normal" selected>Normal</option>
+                        <option value="strong">Strong (slower)</option>
+                    </select>
+                </label>
+                <button id="new-game">New Game</button>
+            </div>
+
+            <h3>Moves</h3>
+            <ol id="move-history"></ol>
+
+            <p class="chess-note">
+                The engine intentionally skips the exotic tricks (transposition tables,
+                null-move pruning, etc.) &mdash; just the essentials, running client-side in
+                real Python.
+            </p>
+        </div>
+    </div>
+
+    <footer>
+        <div class="footer-content">
+            <a href="https://www.linkedin.com/in/andy-chen-b10648244/" target="_blank" title="LinkedIn">
+                <i class="fa-brands fa-linkedin"></i>
+            </a>
+            <a href="mailto:andyhchen@ucsb.edu" target="_self" title="andyhchen@ucsb.edu">
+                <i class="fa-solid fa-envelope"></i> andyhchen@ucsb.edu
+            </a>
+            <div class="site-name">andychenexperience.net</div>
+        </div>
+    </footer>
+
+    <script src="js/chess.js"></script>
+</body>
+
+</html>

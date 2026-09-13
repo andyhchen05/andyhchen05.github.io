@@ -1,0 +1,143 @@
+/* chess.css -- styles specific to chess.html. Loaded in addition to
+   style.css so the rest of the site is untouched. */
+
+.chess-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 40px;
+  padding: 20px 20px 60px 20px;
+}
+
+#board {
+  display: grid;
+  grid-template-columns: repeat(8, 64px);
+  grid-template-rows: repeat(8, 64px);
+  border: 8px solid #8a5a2b;
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+  transform: rotate(0deg);
+  user-select: none;
+}
+
+#board.flipped {
+  transform: rotate(180deg);
+}
+
+#board.flipped .square {
+  transform: rotate(180deg);
+}
+
+.square {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 44px;
+  line-height: 1;
+  cursor: pointer;
+  position: relative;
+}
+
+.square.light { background: #ffdb72; }
+.square.dark { background: #8a5a2b; }
+
+.square.white-piece { color: #fefefe; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+.square.black-piece { color: #111111; text-shadow: 0 0 2px #fff; }
+
+.square.selected {
+  box-shadow: inset 0 0 0 4px #d62828;
+}
+
+.square.legal-target::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(214, 40, 40, 0.65);
+}
+
+.chess-sidebar {
+  background: #252525;
+  border: 1px solid #333333;
+  border-radius: 10px;
+  padding: 20px;
+  min-width: 240px;
+  color: white;
+  font-family: "Trebuchet MS", sans-serif;
+}
+
+.chess-sidebar h3 {
+  margin-top: 0;
+  font-family: "Playwrite US Modern", sans-serif;
+  font-size: 22px;
+}
+
+.chess-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.chess-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.chess-controls select {
+  padding: 6px;
+  border-radius: 6px;
+  border: none;
+}
+
+#new-game {
+  background: linear-gradient(#007acc, #0065a9);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 15px;
+  font-family: "Trebuchet MS", sans-serif;
+  font-size: 16px;
+  cursor: pointer;
+  transition: transform 0.2s, background 0.2s;
+}
+
+#new-game:hover {
+  background: linear-gradient(white, lightgrey);
+  color: black;
+  transform: scale(1.03);
+}
+
+#status {
+  font-weight: bold;
+  min-height: 1.4em;
+  margin-bottom: 12px;
+}
+
+#move-history {
+  list-style: decimal;
+  padding-left: 20px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 14px;
+}
+
+.chess-note {
+  font-size: 13px;
+  color: #aaaaaa;
+  margin-top: 16px;
+}
+
+@media (max-width: 600px) {
+  #board {
+    grid-template-columns: repeat(8, 40px);
+    grid-template-rows: repeat(8, 40px);
+  }
+  .square { width: 40px; height: 40px; font-size: 28px; }
+}
