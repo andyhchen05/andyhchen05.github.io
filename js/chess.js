@@ -297,14 +297,14 @@ class ChessUI {
         const glyph = document.createElement("span");
         glyph.className = "piece-glyph";
         glyph.textContent = PIECE_GLYPH[piece];
+        glyph.draggable = Boolean(
+          this.isHumanPiece(piece) &&
+          !this.locked &&
+          this.state.side_to_move === this.humanColor
+        );
         el.appendChild(glyph);
       }
-      el.draggable = Boolean(
-        piece &&
-        this.isHumanPiece(piece) &&
-        !this.locked &&
-        this.state.side_to_move === this.humanColor
-      );
+      el.draggable = false;
       el.classList.toggle("selected", name === this.selected);
       el.classList.toggle("legal-target", legalTargets.has(name));
       el.classList.toggle("white-piece", !!piece && piece === piece.toUpperCase());
