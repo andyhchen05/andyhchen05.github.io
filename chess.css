@@ -41,6 +41,46 @@
   position: relative;
 }
 
+.square[draggable="true"] {
+  cursor: grab;
+}
+
+.square[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.square::before,
+.square::after {
+  position: absolute;
+  z-index: 1;
+  color: rgba(25, 25, 25, 0.72);
+  font-family: "Trebuchet MS", sans-serif;
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.square::before {
+  content: "";
+  right: 4px;
+  bottom: 3px;
+}
+
+.square::after {
+  content: "";
+  top: 3px;
+  left: 4px;
+}
+
+.square.file-label::before {
+  content: attr(data-file);
+}
+
+.square.rank-label::after {
+  content: attr(data-rank);
+}
+
 .square.light { background: #ffdb72; }
 .square.dark { background: #8a5a2b; }
 
@@ -140,4 +180,6 @@
     grid-template-rows: repeat(8, 40px);
   }
   .square { width: 40px; height: 40px; font-size: 28px; }
+  .square::before,
+  .square::after { font-size: 9px; }
 }

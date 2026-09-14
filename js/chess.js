@@ -67,7 +67,15 @@ class ChessUI {
         const sq = document.createElement("div");
         sq.className = "square " + ((file + rank) % 2 === 0 ? "dark" : "light");
         sq.dataset.square = name;
+        sq.dataset.file = FILES[file];
+        sq.dataset.rank = String(rank + 1);
+        if (rank === 0) sq.classList.add("file-label");
+        if (file === 0) sq.classList.add("rank-label");
         sq.addEventListener("click", () => this.onSquareClick(name));
+        sq.addEventListener("dragstart", (event) => this.onDragStart(event, name));
+        sq.addEventListener("dragover", (event) => this.onDragOver(event, name));
+        sq.addEventListener("drop", (event) => this.onDrop(event, name));
+        sq.addEventListener("dragend", () => this.onDragEnd());
         this.boardEl.appendChild(sq);
         this.squareEls[name] = sq;
       }
@@ -145,12 +153,72 @@ class ChessUI {
       return;
     }
 
+    if (this.selected) {
+      await this.tryMove(this.selected, square);
+    }
+  }
+
+  onDragStart(event, square) {
+    if (
+      this.locked ||
+      !this.state ||
+      this.state.game_over ||
+      this.state.side_to_move !== this.humanColor ||
+      !this.pieceAt(square) ||
+      !this.isHumanPiece(this.pieceAt(square))
+    ) {
+      event.preventDefault();
+      return;
+    }
+
+    this.selected = square;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", square);
+    this.render();
+  }
+
+  onDragOver(event, square) {
+    if (!this.selected || !this.isLegalTarget(square)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  onDrop(event, square) {
+    event.preventDefault();
+    const source = event.dataTransfer.getData("text/plain") || this.selected;
+    if (source) this.tryMove(source, square);
+  }
+
+  onDragEnd() {
+    if (!this.locked) {
+      this.selected = null;
+      this.render();
+    }
+  }
+
+  isLegalTarget(square) {
+    return Boolean(
+      this.selected &&
+      this.state &&
+      this.state.legal_moves.some(
+        (move) => move.startsWith(this.selected) && move.slice(2, 4) === square
+      )
+    );
+  }
+
+  async tryMove(source, square) {
+    if (this.locked || !this.state || this.state.game_over) return;
+    if (this.state.side_to_move !== this.humanColor) return;
+
+    const sourcePiece = this.pieceAt(source);
+    const targetPiece = this.pieceAt(square);
+    const isOwnTarget = targetPiece && this.isHumanPiece(targetPiece);
     const candidates = this.state.legal_moves.filter(
-      (m) => m.startsWith(this.selected) && m.slice(2, 4) === square
+      (m) => m.startsWith(source) && m.slice(2, 4) === square
     );
 
     if (candidates.length === 0) {
-      this.selected = isOwnPiece ? square : null;
+      this.selected = isOwnTarget ? square : null;
       this.render();
       return;
     }
@@ -210,6 +278,7 @@ class ChessUI {
   }
 
   isHumanPiece(fenChar) {
+    if (!fenChar) return false;
     const isWhite = fenChar === fenChar.toUpperCase();
     return (isWhite && this.humanColor === "white") || (!isWhite && this.humanColor === "black");
   }
@@ -227,6 +296,12 @@ class ChessUI {
     for (const [name, el] of Object.entries(this.squareEls)) {
       const piece = this.pieceAt(name);
       el.textContent = piece ? PIECE_GLYPH[piece] : "";
+      el.draggable = Boolean(
+        piece &&
+        this.isHumanPiece(piece) &&
+        !this.locked &&
+        this.state.side_to_move === this.humanColor
+      );
       el.classList.toggle("selected", name === this.selected);
       el.classList.toggle("legal-target", legalTargets.has(name));
       el.classList.toggle("white-piece", !!piece && piece === piece.toUpperCase());
