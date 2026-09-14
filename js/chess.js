@@ -171,7 +171,17 @@ class ChessUI {
     this.selected = square;
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", square);
-    this.render();
+    if (event.target instanceof HTMLElement) {
+      event.dataTransfer.setDragImage(
+        event.target,
+        event.target.offsetWidth / 2,
+        event.target.offsetHeight / 2
+      );
+    }
+    for (const [name, el] of Object.entries(this.squareEls)) {
+      el.classList.toggle("selected", name === square);
+      el.classList.toggle("legal-target", this.isLegalTarget(name));
+    }
   }
 
   onDragOver(event, square) {
