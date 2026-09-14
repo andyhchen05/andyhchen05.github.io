@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Playwrite+US+Modern:wght@100..400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fascinate+Inline&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=WDXL+Lubrifont+TC&display=swap" rel="stylesheet">
+    <script src="https://kit.fontawesome.com/ef4c79f489.js" crossorigin="anonymous"></script>
+    <title>Handle</title>
+</head>
+
+<body>
+<!--header-->
+<header>
+    <div class="header-left">
+        <h1>the Andy Chen Experience</h1>
+        <div class="logo">華威</div>
+    </div>
+</header>
+
+<!--links-->
+<nav>
+    <ul class="nav-menu">
+        <li>
+            <a href="index.html" target="_self" title="Home">
+                <i class="fa-solid fa-house"></i> Home
+            </a>
+        </li>
+        <li>
+            <a href="projects.html" target="_self" title="Projects">
+            <i class="fa-solid fa-toolbox"></i> Projects
+            </a>
+        </li>
+        <li>
+            <a href="contact.html" target="_self" title="Contact">
+                Contact
+            </a>
+        </li>
+    </ul>
+</nav>
+
+<!--about-->
+    <div class="polaroid">
+        <img src="Images/Screenshot 2025-08-22 183952.png" height="500" alt="This is a picture of Handle" title="This is Handle">
+            <div class="caption">Handle</div>
+    </div>
+
+    <h2>Handle</h2>
+        <p>The Handle project aimed to make a differential drive robot remotely controlled via hand motions. The robot's control was connected
+            by transcievers to a glove where certain hand motions were mapped to specific movements in the robot. 
+            <br><br>
+            Movement of the glove was detected with an MPU-6050 unit. Two transcievers, one on the glove and robot respectively, connected
+            the two components so that when the MPU-6050 detected motion or rotation, the robot's two DC TT motors would rotate the wheels accordingly.
+            <br><br>
+            The device's radio range, about 100 feet or so,  is more than enough for the scope of the project. 
+            The robot's speed is also good for the scope of the project. 
+            However, the robot's capabilities are hindered by input lag between the glove controller and the robot, 
+            with delays ranging from as little as one second to as much as ten or fifteen seconds. 
+            The robot's chassis also has its shortcomings, with the wheels fanning out due to the weight of the robot. 
+            The motor mounts could have been better designed to account for the weight and fanning.</p>
+
+        <div class="polaroid-strip">
+            <div class="polaroid">
+                <img src="Images/Screenshot 2024-09-04 160108.png" alt="Glove and Robot">
+                <div class="caption">Glove and Robot</div>
+            </div>
+            
+            <div class="polaroid">
+                <img src="Images/Screenshot 2025-08-22 190646.png" alt="Schematic">
+                    <div class="caption">SketchUp Schematic</div>
+            </div>
+        </div>
+
+    <footer>
+        <div class="footer-content">
+            <a href="https://www.linkedin.com/in/andy-chen-b10648244/" target="_blank" title="LinkedIn">
+                <i class="fa-brands fa-linkedin"></i>
+            </a>
+            <a href="mailto:andyhchen@ucsb.edu" target="_self" title="andyhchen@ucsb.edu">
+                <i class="fa-solid fa-envelope"></i> andyhchen@ucsb.edu
+            </a>
+            <div class="site-name">andychenexperience.net</div>
+        </div>
+    </footer>   
+</body>
+
+</html>
