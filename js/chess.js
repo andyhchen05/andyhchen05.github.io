@@ -41,6 +41,7 @@ class ChessUI {
     this.root = root;
     this.engine = engine;
     this.boardEl = root.querySelector("#board");
+    this.boardShell = root.querySelector(".board-shell");
     this.statusEl = root.querySelector("#status");
     this.historyEl = root.querySelector("#move-history");
     this.newGameBtn = root.querySelector("#new-game");
@@ -67,10 +68,6 @@ class ChessUI {
         const sq = document.createElement("div");
         sq.className = "square " + ((file + rank) % 2 === 0 ? "dark" : "light");
         sq.dataset.square = name;
-        sq.dataset.file = FILES[file];
-        sq.dataset.rank = String(rank + 1);
-        if (rank === 0) sq.classList.add("file-label");
-        if (file === 0) sq.classList.add("rank-label");
         sq.addEventListener("click", () => this.onSquareClick(name));
         sq.addEventListener("dragstart", (event) => this.onDragStart(event, name));
         sq.addEventListener("dragover", (event) => this.onDragOver(event, name));
@@ -309,6 +306,7 @@ class ChessUI {
     }
 
     this.boardEl.classList.toggle("flipped", this.flipped);
+    this.boardShell.classList.toggle("flipped", this.flipped);
   }
 
   appendHistory(uci) {

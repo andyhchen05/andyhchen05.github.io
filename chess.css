@@ -10,6 +10,63 @@
   padding: 20px 20px 60px 20px;
 }
 
+.board-shell {
+  display: grid;
+  grid-template-columns: 24px auto;
+  grid-template-rows: auto 24px;
+  align-items: stretch;
+  color: #222;
+  font-family: "Trebuchet MS", sans-serif;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.board-stage {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.rank-labels,
+.file-labels {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+}
+
+.rank-labels {
+  grid-column: 1;
+  grid-row: 1;
+  flex-direction: column;
+  padding: 8px 0;
+}
+
+.file-labels {
+  flex-direction: row;
+  height: 24px;
+}
+
+.file-labels span {
+  width: 64px;
+  text-align: center;
+}
+
+.board-shell.flipped {
+  grid-template-columns: auto 24px;
+}
+
+.board-shell.flipped .board-stage {
+  grid-column: 1;
+}
+
+.board-shell.flipped .rank-labels {
+  grid-column: 2;
+  flex-direction: column-reverse;
+}
+
+.board-shell.flipped .file-labels {
+  flex-direction: row-reverse;
+}
+
 #board {
   display: grid;
   grid-template-columns: repeat(8, 64px);
@@ -49,38 +106,6 @@
   cursor: grabbing;
 }
 
-.square::before,
-.square::after {
-  position: absolute;
-  z-index: 1;
-  color: rgba(25, 25, 25, 0.72);
-  font-family: "Trebuchet MS", sans-serif;
-  font-size: 12px;
-  font-weight: bold;
-  line-height: 1;
-  pointer-events: none;
-}
-
-.square::before {
-  content: "";
-  right: 4px;
-  bottom: 3px;
-}
-
-.square::after {
-  content: "";
-  top: 3px;
-  left: 4px;
-}
-
-.square.file-label::before {
-  content: attr(data-file);
-}
-
-.square.rank-label::after {
-  content: attr(data-rank);
-}
-
 .square.light { background: #ffdb72; }
 .square.dark { background: #8a5a2b; }
 
@@ -94,10 +119,14 @@
 .square.legal-target::after {
   content: "";
   position: absolute;
+  top: 50%;
+  left: 50%;
   width: 18px;
   height: 18px;
   border-radius: 50%;
   background: rgba(214, 40, 40, 0.65);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .chess-sidebar {
@@ -180,6 +209,8 @@
     grid-template-rows: repeat(8, 40px);
   }
   .square { width: 40px; height: 40px; font-size: 28px; }
-  .square::before,
-  .square::after { font-size: 9px; }
+  .file-labels span { width: 40px; }
+  .board-shell { grid-template-columns: 18px auto; grid-template-rows: auto 20px; font-size: 10px; }
+  .board-shell.flipped { grid-template-columns: auto 18px; }
+  .file-labels { height: 20px; }
 }
