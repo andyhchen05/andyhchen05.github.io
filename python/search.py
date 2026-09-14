@@ -85,6 +85,8 @@ class Searcher:
             return 0  # stalemate
         if board.halfmove_clock >= 100:
             return 0  # 50-move rule
+        if board.is_repetition(3):
+            return 0  # threefold repetition
         if depth == 0:
             return self.quiescence(board, alpha, beta)
         best = -INF

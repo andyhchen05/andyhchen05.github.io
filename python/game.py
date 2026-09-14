@@ -9,7 +9,7 @@ simple to JSON-serialize for a frontend.
 from __future__ import annotations
 from typing import List, Optional, Dict, Any
 
-from board import Board, Move, START_FEN, WHITE, BLACK, square_from_name
+from board import Board, Move, START_FEN, WHITE, BLACK, square_from_name, has_insufficient_material
 from movegen import generate_legal_moves
 from search import find_best_move, SearchStats
 
@@ -42,15 +42,32 @@ class Game:
     def is_fifty_move_draw(self) -> bool:
         return self.board.halfmove_clock >= 100
 
+    def is_threefold_repetition(self) -> bool:
+        return self.board.is_repetition(3)
+
+    def is_insufficient_material(self) -> bool:
+        return has_insufficient_material(self.board)
+
     def is_game_over(self) -> bool:
-        return self.is_checkmate() or self.is_stalemate() or self.is_fifty_move_draw()
+        return (
+            self.is_checkmate()
+            or self.is_stalemate()
+            or self.is_fifty_move_draw()
+            or self.is_threefold_repetition()
+            or self.is_insufficient_material()
+        )
 
     def result(self) -> Optional[str]:
         """Returns '1-0', '0-1', '1/2-1/2', or None if the game isn't over."""
         if self.is_checkmate():
             # The side to move is mated, so the *other* side won.
             return "0-1" if self.board.to_move == WHITE else "1-0"
-        if self.is_stalemate() or self.is_fifty_move_draw():
+        if (
+            self.is_stalemate()
+            or self.is_fifty_move_draw()
+            or self.is_threefold_repetition()
+            or self.is_insufficient_material()
+        ):
             return "1/2-1/2"
         return None
 

@@ -138,6 +138,11 @@ class Board:
         self.halfmove_clock: int = 0
         self.fullmove_number: int = 1
         self._history: List[_Undo] = []
+        # Repetition tracking: a stack of position keys (one per position
+        # reached, including the starting one) plus a running count per
+        # key, so `is_repetition` is an O(1) lookup at every search node.
+        self._position_key_history: List[tuple] = []
+        self._position_counts: dict = {}
         self.set_fen(fen)
 
     # -- FEN -----------------------------------------------------------
@@ -183,6 +188,10 @@ class Board:
         self.fullmove_number = fullmove
         self._history = []
 
+        self._position_key_history = []
+        self._position_counts = {}
+        self._push_position_key()
+
     def fen(self) -> str:
         rows = []
         for rank in range(7, -1, -1):
@@ -220,6 +229,38 @@ class Board:
         ep = "-" if self.ep_square is None else square_name(self.ep_square)
 
         return f"{placement} {side} {castling} {ep} {self.halfmove_clock} {self.fullmove_number}"
+
+    # -- Repetition tracking -----------------------------------------------
+
+    def _position_key(self) -> tuple:
+        """A hashable key that uniquely identifies the current position for
+        repetition purposes: piece placement, side to move, castling
+        rights, and the en-passant target square. (Strictly, FIDE rules
+        only count the ep square when an ep capture is actually legal;
+        treating any set ep square as significant is a common, slightly
+        conservative simplification -- it can only under-count
+        repetitions, never falsely report one.)"""
+        return (tuple(self.squares), self.to_move, self.castle_rights, self.ep_square)
+
+    def _push_position_key(self) -> None:
+        key = self._position_key()
+        self._position_key_history.append(key)
+        self._position_counts[key] = self._position_counts.get(key, 0) + 1
+
+    def _pop_position_key(self) -> None:
+        key = self._position_key_history.pop()
+        remaining = self._position_counts[key] - 1
+        if remaining <= 0:
+            del self._position_counts[key]
+        else:
+            self._position_counts[key] = remaining
+
+    def is_repetition(self, count: int = 3) -> bool:
+        """True if the current position has occurred `count` or more times
+        in this game (including right now) -- i.e. a threefold-repetition
+        claim would be valid. Cheap: backed by an incrementally maintained
+        count, not a scan."""
+        return self._position_counts.get(self._position_key(), 0) >= count
 
     # -- Attacks ---------------------------------------------------------
 
@@ -350,7 +391,11 @@ class Board:
 
         self.to_move = WHITE if color == BLACK else BLACK
 
+        self._push_position_key()
+
     def unmake_move(self) -> None:
+        self._pop_position_key()
+
         undo = self._history.pop()
         move = undo.move
 
@@ -407,6 +452,8 @@ class Board:
         b.halfmove_clock = self.halfmove_clock
         b.fullmove_number = self.fullmove_number
         b._history = []
+        b._position_key_history = list(self._position_key_history)
+        b._position_counts = dict(self._position_counts)
         return b
 
     def __str__(self) -> str:
@@ -423,3 +470,31 @@ class Board:
             lines.append(f"{rank + 1}  " + " ".join(row))
         lines.append("   a b c d e f g h")
         return "\n".join(lines)
+
+
+def has_insufficient_material(board: Board) -> bool:
+    """True if neither side has enough material to checkmate, even with
+    the worst possible play from the opponent.
+
+    Covers the unambiguous, common cases -- king vs king, king+knight vs
+    king, king+bishop vs king -- by requiring no pawns/rooks/queens on the
+    board and at most one minor piece in total. Rarer "dead position"
+    cases (e.g. bishops of the same color on both sides) are deliberately
+    not detected: under-detecting a draw here is safe, wrongly declaring
+    one is not.
+    """
+    minors = 0
+    for sq in range(128):
+        if not on_board(sq):
+            continue
+        piece = board.squares[sq]
+        if piece == EMPTY:
+            continue
+        ptype = piece_type(piece)
+        if ptype in (PAWN, ROOK, QUEEN):
+            return False
+        if ptype in (KNIGHT, BISHOP):
+            minors += 1
+            if minors > 1:
+                return False
+    return True
