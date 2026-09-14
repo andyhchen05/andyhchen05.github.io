@@ -31,6 +31,9 @@
   display: flex;
   align-items: center;
   justify-content: space-around;
+  background: #f6dfa1;
+  color: #3a2412;
+  text-shadow: none;
 }
 
 .rank-labels {
@@ -43,6 +46,7 @@
 .file-labels {
   flex-direction: row;
   height: 24px;
+  margin: 0 8px;
 }
 
 .file-labels span {
@@ -109,18 +113,31 @@
 .square.light { background: #ffdb72; }
 .square.dark { background: #8a5a2b; }
 
-.square.white-piece { color: #fefefe; text-shadow: 0 0 2px #000, 0 0 2px #000; }
-.square.black-piece { color: #111111; text-shadow: 0 0 2px #fff; }
+.piece-glyph {
+  display: inline-block;
+  line-height: 1;
+}
+
+.square.white-piece .piece-glyph { color: #fefefe; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+.square.black-piece .piece-glyph { color: #111111; text-shadow: 0 0 2px #fff; }
 
 .square.selected {
   box-shadow: none;
 }
 
 .square.selected.white-piece {
-  text-shadow: 0 0 2px #000, 0 0 5px #d62828, 0 0 10px rgba(214, 40, 40, 0.85);
+  text-shadow: none;
 }
 
 .square.selected.black-piece {
+  text-shadow: none;
+}
+
+.square.selected.white-piece .piece-glyph {
+  text-shadow: 0 0 2px #000, 0 0 5px #d62828, 0 0 10px rgba(214, 40, 40, 0.85);
+}
+
+.square.selected.black-piece .piece-glyph {
   text-shadow: 0 0 2px #fff, 0 0 5px #d62828, 0 0 10px rgba(214, 40, 40, 0.85);
 }
 
@@ -217,6 +234,7 @@
     grid-template-rows: repeat(8, 40px);
   }
   .square { width: 40px; height: 40px; font-size: 28px; }
+  .file-labels { margin: 0 4px; }
   .file-labels span { width: 40px; }
   .board-shell { grid-template-columns: 18px auto; grid-template-rows: auto 20px; font-size: 10px; }
   .board-shell.flipped { grid-template-columns: auto 18px; }

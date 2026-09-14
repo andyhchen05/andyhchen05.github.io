@@ -292,7 +292,13 @@ class ChessUI {
 
     for (const [name, el] of Object.entries(this.squareEls)) {
       const piece = this.pieceAt(name);
-      el.textContent = piece ? PIECE_GLYPH[piece] : "";
+      el.replaceChildren();
+      if (piece) {
+        const glyph = document.createElement("span");
+        glyph.className = "piece-glyph";
+        glyph.textContent = PIECE_GLYPH[piece];
+        el.appendChild(glyph);
+      }
       el.draggable = Boolean(
         piece &&
         this.isHumanPiece(piece) &&
