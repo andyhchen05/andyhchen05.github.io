@@ -230,11 +230,24 @@
 }
 
 #move-history {
-  list-style: decimal;
-  padding-left: 40px;
+  list-style: none;
+  padding-left: 0;
   max-height: 300px;
   overflow-y: auto;
   font-size: 14px;
+  counter-reset: moves;
+}
+
+#move-history li {
+  counter-increment: moves;
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  column-gap: 8px;
+}
+
+#move-history li::before {
+  content: counter(moves) ".";
+  text-align: left;
 }
 
 .chess-note {
