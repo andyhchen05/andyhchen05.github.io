@@ -11,6 +11,7 @@ from typing import List, Optional, Dict, Any
 
 from board import Board, Move, START_FEN, WHITE, BLACK, square_from_name, has_insufficient_material
 from movegen import generate_legal_moves
+from opening_book import opening_book_move
 from search import find_best_move, SearchStats
 
 
@@ -104,7 +105,14 @@ class Game:
     def best_move(
         self, max_depth: int = 4, time_limit: Optional[float] = None
     ) -> Optional[str]:
-        """Ask the simple search engine for its choice in this position."""
+        """Return a book move when available, otherwise search the position."""
+        legal_moves = generate_legal_moves(self.board)
+        book_move = opening_book_move(
+            self._move_history,
+            (move.uci() for move in legal_moves),
+        )
+        if book_move is not None:
+            return book_move
         move = find_best_move(self.board, max_depth=max_depth, time_limit=time_limit)
         return move.uci() if move is not None else None
 
