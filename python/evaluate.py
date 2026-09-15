@@ -135,25 +135,31 @@ MAX_PHASE = 24
 PHASE_VALUE = {KNIGHT: 1, BISHOP: 1, ROOK: 2, QUEEN: 4}
 MOBILITY_WEIGHT = {KNIGHT: 4, BISHOP: 4, ROOK: 3, QUEEN: 2, KING: 1}
 PASSED_PAWN_BONUS = (0, 5, 10, 18, 30, 48, 75, 0)
+EVALUATION_CACHE = {}
+EVALUATION_CACHE_LIMIT = 100_000
 
 
 def _color_sign(color: int) -> int:
     return 1 if color == WHITE else -1
 
 
-def _iter_pieces(board: Board, color: int):
+def _collect_pieces(board: Board):
+    pieces = {WHITE: [], BLACK: []}
     for sq in range(128):
         if on_board(sq) and board.squares[sq] != EMPTY:
             piece = board.squares[sq]
-            if piece_color(piece) == color:
-                yield sq, piece_type(piece)
+            pieces[piece_color(piece)].append((sq, piece_type(piece)))
+    return pieces
 
 
-def _phase(board: Board) -> int:
+def _phase(pieces) -> int:
     return min(
         MAX_PHASE,
-        sum(PHASE_VALUE.get(ptype, 0) for _, ptype in _iter_pieces(board, WHITE))
-        + sum(PHASE_VALUE.get(ptype, 0) for _, ptype in _iter_pieces(board, BLACK)),
+        sum(
+            PHASE_VALUE.get(ptype, 0)
+            for color in (WHITE, BLACK)
+            for _, ptype in pieces[color]
+        ),
     )
 
 
@@ -183,10 +189,10 @@ def _ray_mobility(board: Board, sq: int, deltas, color: int) -> int:
     return score
 
 
-def _mobility(board: Board, color: int) -> int:
+def _mobility(board: Board, color: int, pieces) -> int:
     """Return a weighted pseudo-legal mobility score for one side."""
     score = 0
-    for sq, ptype in _iter_pieces(board, color):
+    for sq, ptype in pieces[color]:
         if ptype == PAWN:
             continue
         if ptype == KNIGHT:
@@ -218,20 +224,28 @@ def _mobility(board: Board, color: int) -> int:
     return score
 
 
-def _pawn_structure(board: Board, color: int) -> int:
+def _pawn_structure(board: Board, color: int, pieces, pawn_files) -> int:
     """Score doubled, isolated, connected, and passed pawns for one side."""
-    pawns = [(sq_file(sq), sq_rank(sq)) for sq, ptype in _iter_pieces(board, color) if ptype == PAWN]
+    pawns = [
+        (sq_file(sq), sq_rank(sq))
+        for sq, ptype in pieces[color]
+        if ptype == PAWN
+    ]
     if not pawns:
         return 0
 
-    files = {file for file, _ in pawns}
+    files = pawn_files[color]
     score = 0
     for file in files:
         count = sum(1 for pawn_file, _ in pawns if pawn_file == file)
         score -= 12 * max(0, count - 1)
 
     enemy = BLACK if color == WHITE else WHITE
-    enemy_pawns = [(sq_file(sq), sq_rank(sq)) for sq, ptype in _iter_pieces(board, enemy) if ptype == PAWN]
+    enemy_pawns = [
+        (sq_file(sq), sq_rank(sq))
+        for sq, ptype in pieces[enemy]
+        if ptype == PAWN
+    ]
     enemy_by_file = {}
     for file, rank in enemy_pawns:
         enemy_by_file.setdefault(file, []).append(rank)
@@ -261,23 +275,12 @@ def _pawn_structure(board: Board, color: int) -> int:
     return score
 
 
-def _rook_activity(board: Board, color: int) -> int:
-    pawn_files = {
-        file
-        for sq, ptype in _iter_pieces(board, WHITE)
-        if ptype == PAWN
-        for file in (sq_file(sq),)
-    } | {
-        file
-        for sq, ptype in _iter_pieces(board, BLACK)
-        if ptype == PAWN
-        for file in (sq_file(sq),)
-    }
-    own_pawn_files = {
-        sq_file(sq) for sq, ptype in _iter_pieces(board, color) if ptype == PAWN
-    }
+def _rook_activity(board: Board, color: int, pieces, all_pawn_files) -> int:
+    own_pawn_files = pawn_files = all_pawn_files[color]
+    enemy = BLACK if color == WHITE else WHITE
+    pawn_files = pawn_files | all_pawn_files[enemy]
     score = 0
-    for sq, ptype in _iter_pieces(board, color):
+    for sq, ptype in pieces[color]:
         if ptype != ROOK:
             continue
         file = sq_file(sq)
@@ -291,7 +294,7 @@ def _rook_activity(board: Board, color: int) -> int:
     return score
 
 
-def _king_safety(board: Board, color: int) -> int:
+def _king_safety(board: Board, color: int, all_pawn_files) -> int:
     """Use pawn shield, nearby open files, and direct check pressure."""
     king_sq = board.king_square(color)
     king_file = sq_file(king_sq)
@@ -306,17 +309,9 @@ def _king_safety(board: Board, color: int) -> int:
             if board.squares[shield_sq] == color | PAWN:
                 score += 10
 
-    all_pawn_files = {
-        sq_file(sq)
-        for sq, ptype in _iter_pieces(board, WHITE)
-        if ptype == PAWN
-    } | {
-        sq_file(sq)
-        for sq, ptype in _iter_pieces(board, BLACK)
-        if ptype == PAWN
-    }
+    pawn_files = all_pawn_files[WHITE] | all_pawn_files[BLACK]
     for file in range(max(0, king_file - 1), min(8, king_file + 2)):
-        if file not in all_pawn_files:
+        if file not in pawn_files:
             score -= 8
 
     enemy = BLACK if color == WHITE else WHITE
@@ -325,37 +320,50 @@ def _king_safety(board: Board, color: int) -> int:
     return score
 
 
-def _bishop_pair(board: Board, color: int) -> int:
-    bishops = sum(1 for _, ptype in _iter_pieces(board, color) if ptype == BISHOP)
+def _bishop_pair(pieces, color: int) -> int:
+    bishops = sum(1 for _, ptype in pieces[color] if ptype == BISHOP)
     return 30 if bishops >= 2 else 0
 
 
 def evaluate(board: Board) -> int:
     """Static evaluation from White's perspective, in centipawns."""
-    endgame_ratio = 1.0 - (_phase(board) / MAX_PHASE)
-    score = 0
-    for sq in range(128):
-        if not on_board(sq):
-            continue
-        piece = board.squares[sq]
-        if piece == EMPTY:
-            continue
-        color = piece_color(piece)
-        ptype = piece_type(piece)
-        rank = sq_rank(sq)
-        file = sq_file(sq)
-        table_rank = rank if color == WHITE else 7 - rank
-        value = PIECE_VALUE[ptype] + _piece_square_value(
-            ptype, table_rank, file, endgame_ratio
-        )
-        score += _color_sign(color) * value
+    cached = EVALUATION_CACHE.get(board.hash)
+    if cached is not None:
+        return cached
 
-    score += 4 * (_mobility(board, WHITE) - _mobility(board, BLACK))
-    score += _pawn_structure(board, WHITE) - _pawn_structure(board, BLACK)
-    score += _rook_activity(board, WHITE) - _rook_activity(board, BLACK)
-    score += _bishop_pair(board, WHITE) - _bishop_pair(board, BLACK)
+    pieces = _collect_pieces(board)
+    pawn_files = {
+        color: {sq_file(sq) for sq, ptype in pieces[color] if ptype == PAWN}
+        for color in (WHITE, BLACK)
+    }
+    endgame_ratio = 1.0 - (_phase(pieces) / MAX_PHASE)
+    score = 0
+    for color in (WHITE, BLACK):
+        for sq, ptype in pieces[color]:
+            rank = sq_rank(sq)
+            file = sq_file(sq)
+            table_rank = rank if color == WHITE else 7 - rank
+            value = PIECE_VALUE[ptype] + _piece_square_value(
+                ptype, table_rank, file, endgame_ratio
+            )
+            score += _color_sign(color) * value
+
+    score += 4 * (
+        _mobility(board, WHITE, pieces) - _mobility(board, BLACK, pieces)
+    )
+    score += _pawn_structure(board, WHITE, pieces, pawn_files)
+    score -= _pawn_structure(board, BLACK, pieces, pawn_files)
+    score += _rook_activity(board, WHITE, pieces, pawn_files)
+    score -= _rook_activity(board, BLACK, pieces, pawn_files)
+    score += _bishop_pair(pieces, WHITE) - _bishop_pair(pieces, BLACK)
     score += round(
         (1.0 - endgame_ratio)
-        * (_king_safety(board, WHITE) - _king_safety(board, BLACK))
+        * (
+            _king_safety(board, WHITE, pawn_files)
+            - _king_safety(board, BLACK, pawn_files)
+        )
     )
+    if len(EVALUATION_CACHE) >= EVALUATION_CACHE_LIMIT:
+        EVALUATION_CACHE.clear()
+    EVALUATION_CACHE[board.hash] = score
     return score

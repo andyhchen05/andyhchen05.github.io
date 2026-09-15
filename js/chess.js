@@ -103,7 +103,7 @@ class ChessUI {
   strengthConfig() {
     const v = this.strengthSelect.value;
     if (v === "fast") return { timeLimit: 0.6, maxDepth: 4 };
-    if (v === "strong") return { timeLimit: 3.0, maxDepth: 6 };
+    if (v === "strong") return { timeLimit: 8.0, maxDepth: 7 };
     return { timeLimit: 1.5, maxDepth: 5 }; // "normal"
   }
 

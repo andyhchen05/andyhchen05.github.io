@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Callable, Tuple
-from board import Board, Move, WHITE, piece_type, EMPTY
+from board import Board, Move, WHITE, BLACK, piece_type, EMPTY, on_board
 from movegen import generate_legal_moves, generate_pseudo_legal_moves, is_capture
 from evaluate import evaluate, PIECE_VALUE
 
@@ -72,6 +72,41 @@ class SearchTimeout(Exception):
 class SearchStats:
     nodes: int = 0
     qnodes: int = 0
+
+
+def _has_non_pawn_material(board: Board, color: int) -> bool:
+    for sq in range(128):
+        if not on_board(sq):
+            continue
+        piece = board.squares[sq]
+        if piece != EMPTY and (piece & WHITE) == color and piece_type(piece) in (
+            2,
+            3,
+            4,
+            5,
+        ):
+            return True
+    return False
+
+
+def _make_null_move(board: Board):
+    """Temporarily pass the turn for null-move pruning.
+
+    The board has no regular move to undo, so preserve and restore the small
+    amount of state that a null move changes while still maintaining the
+    repetition stack and Zobrist hash during the recursive search.
+    """
+    previous = (board.to_move, board.ep_square, board.hash)
+    board.to_move = BLACK if board.to_move == WHITE else WHITE
+    board.ep_square = None
+    board.hash = board._compute_hash()
+    board._push_position_key()
+    return previous
+
+
+def _unmake_null_move(board: Board, previous) -> None:
+    board._pop_position_key()
+    board.to_move, board.ep_square, board.hash = previous
 
 
 # -- Transposition table -----------------------------------------------
@@ -175,7 +210,7 @@ class Searcher:
         key = (board.to_move, move.from_sq, move.to_sq)
         self.history[key] = self.history.get(key, 0) + depth * depth
 
-    def quiescence(self, board: Board, alpha: int, beta: int, depth_left: int = 6) -> int:
+    def quiescence(self, board: Board, alpha: int, beta: int, depth_left: int = 3) -> int:
         self.stats.qnodes += 1
         if self.stats.qnodes % 2048 == 0:
             self._check_time()
@@ -186,7 +221,12 @@ class Searcher:
             alpha = stand_pat
         if depth_left == 0:
             return alpha
-        captures = [m for m in generate_pseudo_legal_moves(board) if is_capture(board, m)]
+
+        captures = [
+            move
+            for move in generate_pseudo_legal_moves(board)
+            if is_capture(board, move)
+        ]
         for move in _ordered_captures(board, captures):
             mover = board.to_move
             board.make_move(move)
@@ -253,12 +293,54 @@ class Searcher:
         if depth == 0:
             return self.quiescence(board, alpha, beta)
 
+        # Null-move pruning quickly rejects positions where the side to move
+        # has enough material that even passing still keeps a beta cutoff.
+        # Avoid it in pawn-only positions where zugzwang is common.
+        if depth >= 3 and not board.in_check() and _has_non_pawn_material(board, board.to_move):
+            previous = _make_null_move(board)
+            try:
+                reduction = 2 + (1 if depth >= 6 else 0)
+                null_score = -self.negamax(
+                    board,
+                    depth - 1 - reduction,
+                    -beta,
+                    -beta + 1,
+                    ply + 1,
+                )
+            finally:
+                _unmake_null_move(board, previous)
+            if null_score >= beta:
+                return null_score
+
         best = -INF
         best_move: Optional[Move] = None
-        for move in self._order_moves(board, legal_moves, ply, tt_move):
+        for move_index, move in enumerate(
+            self._order_moves(board, legal_moves, ply, tt_move)
+        ):
+            quiet_move = not is_capture(board, move) and not move.promotion
+            late_quiet = quiet_move and depth >= 4 and move_index >= 4
             board.make_move(move)
             try:
-                score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1)
+                gives_check = depth >= 2 and board.in_check(board.to_move)
+                reduction = 1 if late_quiet and not gives_check else 0
+                extension = 1 if gives_check and depth <= 4 else 0
+                score = -self.negamax(
+                    board,
+                    depth - 1 + extension - reduction,
+                    -beta,
+                    -alpha,
+                    ply + 1,
+                )
+                # A reduced move that looks competitive gets a full-depth
+                # re-search so LMR cannot hide a strong tactical continuation.
+                if reduction and score > alpha:
+                    score = -self.negamax(
+                        board,
+                        depth - 1,
+                        -beta,
+                        -alpha,
+                        ply + 1,
+                    )
             finally:
                 # The live game board is also used as the search workspace.
                 # Always restore it, including when the search times out.
