@@ -9,6 +9,7 @@ board" just by checking that bit.
 """
 
 from __future__ import annotations
+import random
 from dataclasses import dataclass
 from typing import Optional, List
 
@@ -97,6 +98,48 @@ PAWN_CAPTURE_DELTAS = {WHITE: (15, 17), BLACK: (-15, -17)}
 
 
 # ---------------------------------------------------------------------------
+# Zobrist hashing
+# ---------------------------------------------------------------------------
+# Used both for cheap repetition detection and as the transposition-table
+# key (see search.py). A fixed seed keeps hashes reproducible from run to
+# run -- handy for debugging -- while still being effectively random for
+# the purpose of avoiding collisions.
+
+_ZOBRIST_RNG = random.Random(0xC0FFEE)
+
+
+def _rand64() -> int:
+    return _ZOBRIST_RNG.getrandbits(64)
+
+
+def _color_index(color: int) -> int:
+    return 0 if color == WHITE else 1
+
+
+# [color_index][piece_type][square] -- piece_type is 1..6 (PAWN..KING);
+# index 0 is simply never touched. Sized to 128 so a square index can be
+# used directly without remapping, even though only ~64 entries are ever
+# read (off-board 0x88 squares never hold a piece).
+ZOBRIST_PIECE = [[[_rand64() for _ in range(128)] for _ in range(7)] for _ in range(2)]
+ZOBRIST_SIDE = _rand64()
+ZOBRIST_CASTLE_BIT = {
+    CASTLE_WHITE_KING: _rand64(),
+    CASTLE_WHITE_QUEEN: _rand64(),
+    CASTLE_BLACK_KING: _rand64(),
+    CASTLE_BLACK_QUEEN: _rand64(),
+}
+ZOBRIST_EP_FILE = [_rand64() for _ in range(8)]
+
+
+def _castle_zobrist(castle_rights: int) -> int:
+    key = 0
+    for bit, z in ZOBRIST_CASTLE_BIT.items():
+        if castle_rights & bit:
+            key ^= z
+    return key
+
+
+# ---------------------------------------------------------------------------
 # Move representation
 # ---------------------------------------------------------------------------
 
@@ -127,6 +170,7 @@ class _Undo:
     castle_rights: int
     ep_square: Optional[int]
     halfmove_clock: int
+    hash_before: int
 
 
 class Board:
@@ -138,10 +182,11 @@ class Board:
         self.halfmove_clock: int = 0
         self.fullmove_number: int = 1
         self._history: List[_Undo] = []
+        self.hash: int = 0
         # Repetition tracking: a stack of position keys (one per position
         # reached, including the starting one) plus a running count per
         # key, so `is_repetition` is an O(1) lookup at every search node.
-        self._position_key_history: List[tuple] = []
+        self._position_key_history: List[int] = []
         self._position_counts: dict = {}
         self.set_fen(fen)
 
@@ -188,6 +233,7 @@ class Board:
         self.fullmove_number = fullmove
         self._history = []
 
+        self.hash = self._compute_hash()
         self._position_key_history = []
         self._position_counts = {}
         self._push_position_key()
@@ -232,15 +278,37 @@ class Board:
 
     # -- Repetition tracking -----------------------------------------------
 
-    def _position_key(self) -> tuple:
-        """A hashable key that uniquely identifies the current position for
-        repetition purposes: piece placement, side to move, castling
-        rights, and the en-passant target square. (Strictly, FIDE rules
-        only count the ep square when an ep capture is actually legal;
-        treating any set ep square as significant is a common, slightly
-        conservative simplification -- it can only under-count
-        repetitions, never falsely report one.)"""
-        return (tuple(self.squares), self.to_move, self.castle_rights, self.ep_square)
+    def _compute_hash(self) -> int:
+        """Full from-scratch Zobrist hash. Only used on set_fen; make_move
+        and unmake_move maintain self.hash incrementally from here on."""
+        h = 0
+        for sq in range(128):
+            if not on_board(sq):
+                continue
+            piece = self.squares[sq]
+            if piece == EMPTY:
+                continue
+            h ^= ZOBRIST_PIECE[_color_index(piece_color(piece))][piece_type(piece)][sq]
+        if self.to_move == BLACK:
+            h ^= ZOBRIST_SIDE
+        h ^= _castle_zobrist(self.castle_rights)
+        if self.ep_square is not None:
+            h ^= ZOBRIST_EP_FILE[sq_file(self.ep_square)]
+        return h
+
+    def _toggle_piece_hash(self, piece: int, sq: int) -> None:
+        if piece != EMPTY:
+            self.hash ^= ZOBRIST_PIECE[_color_index(piece_color(piece))][piece_type(piece)][sq]
+
+    def _position_key(self) -> int:
+        """The Zobrist hash uniquely identifies the current position (piece
+        placement, side to move, castling rights, en-passant file) for
+        repetition purposes. (Strictly, FIDE rules only count the ep
+        square when an ep capture is actually legal; treating any set ep
+        square as significant is a common, slightly conservative
+        simplification -- it can only under-count repetitions, never
+        falsely report one.)"""
+        return self.hash
 
     def _push_position_key(self) -> None:
         key = self._position_key()
@@ -335,37 +403,56 @@ class Board:
             castle_rights=self.castle_rights,
             ep_square=self.ep_square,
             halfmove_clock=self.halfmove_clock,
+            hash_before=self.hash,
         )
         self._history.append(undo)
 
         # En-passant capture removes a pawn that is not on the destination square.
         if move.is_ep:
             captured_sq = move.to_sq - PAWN_DIR[color]
+            self._toggle_piece_hash(self.squares[captured_sq], captured_sq)
             self.squares[captured_sq] = EMPTY
 
+        # A normal capture removes whatever was standing on the destination
+        # square before the hash reflects the mover arriving there.
+        if captured != EMPTY:
+            self._toggle_piece_hash(captured, move.to_sq)
+
         # Move the piece.
+        self._toggle_piece_hash(piece, move.from_sq)
         self.squares[move.to_sq] = piece
         self.squares[move.from_sq] = EMPTY
+        self._toggle_piece_hash(piece, move.to_sq)
 
-        # Promotion.
+        # Promotion: swap the pawn just placed on to_sq for the promoted piece.
         if move.promotion:
-            self.squares[move.to_sq] = make_piece(color, move.promotion)
+            self._toggle_piece_hash(piece, move.to_sq)
+            promoted = make_piece(color, move.promotion)
+            self.squares[move.to_sq] = promoted
+            self._toggle_piece_hash(promoted, move.to_sq)
 
         # Castling: move the rook too.
         if move.is_castle_king:
             rank = sq_rank(move.from_sq)
             rook_from = square(7, rank)
             rook_to = square(5, rank)
-            self.squares[rook_to] = self.squares[rook_from]
+            rook = self.squares[rook_from]
+            self._toggle_piece_hash(rook, rook_from)
+            self.squares[rook_to] = rook
             self.squares[rook_from] = EMPTY
+            self._toggle_piece_hash(rook, rook_to)
         elif move.is_castle_queen:
             rank = sq_rank(move.from_sq)
             rook_from = square(0, rank)
             rook_to = square(3, rank)
-            self.squares[rook_to] = self.squares[rook_from]
+            rook = self.squares[rook_from]
+            self._toggle_piece_hash(rook, rook_from)
+            self.squares[rook_to] = rook
             self.squares[rook_from] = EMPTY
+            self._toggle_piece_hash(rook, rook_to)
 
         # Update castling rights.
+        old_castle_rights = self.castle_rights
         if ptype == KING:
             if color == WHITE:
                 self.castle_rights &= ~(CASTLE_WHITE_KING | CASTLE_WHITE_QUEEN)
@@ -373,12 +460,19 @@ class Board:
                 self.castle_rights &= ~(CASTLE_BLACK_KING | CASTLE_BLACK_QUEEN)
         self._clear_castle_right_for_square(move.from_sq)
         self._clear_castle_right_for_square(move.to_sq)
+        if self.castle_rights != old_castle_rights:
+            self.hash ^= _castle_zobrist(old_castle_rights) ^ _castle_zobrist(self.castle_rights)
 
         # Update en-passant target square.
+        old_ep_square = self.ep_square
         if move.is_double_push:
             self.ep_square = (move.from_sq + move.to_sq) // 2
         else:
             self.ep_square = None
+        if old_ep_square is not None:
+            self.hash ^= ZOBRIST_EP_FILE[sq_file(old_ep_square)]
+        if self.ep_square is not None:
+            self.hash ^= ZOBRIST_EP_FILE[sq_file(self.ep_square)]
 
         # Halfmove clock (50-move rule).
         if ptype == PAWN or captured != EMPTY:
@@ -390,6 +484,7 @@ class Board:
             self.fullmove_number += 1
 
         self.to_move = WHITE if color == BLACK else BLACK
+        self.hash ^= ZOBRIST_SIDE
 
         self._push_position_key()
 
@@ -430,6 +525,11 @@ class Board:
         self.castle_rights = undo.castle_rights
         self.ep_square = undo.ep_square
         self.halfmove_clock = undo.halfmove_clock
+        # Restoring the saved pre-move hash directly, rather than reversing
+        # each XOR above by hand, is both simpler and safer against bugs --
+        # there's exactly one way for this to be wrong (the save on the way
+        # in) instead of two (save and reverse).
+        self.hash = undo.hash_before
         if color == BLACK:
             self.fullmove_number -= 1
 
@@ -452,6 +552,7 @@ class Board:
         b.halfmove_clock = self.halfmove_clock
         b.fullmove_number = self.fullmove_number
         b._history = []
+        b.hash = self.hash
         b._position_key_history = list(self._position_key_history)
         b._position_counts = dict(self._position_counts)
         return b
