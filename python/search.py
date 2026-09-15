@@ -2,17 +2,16 @@
 search.py -- A simple alpha-beta search.
 
 Negamax with alpha-beta pruning, iterative deepening, a quiescence search
-to avoid the worst of the horizon effect, simple MVV-LVA move ordering for
-captures, and a transposition table (keyed by the board's incrementally
-maintained Zobrist hash) that caches search results across both branches
-and iterative-deepening iterations. Still deliberately basic beyond that:
-no null-move pruning, no late-move reductions, no killer/history
-heuristics, no static-exchange evaluation.
+to avoid the worst of the horizon effect, MVV-LVA move ordering for
+captures, a transposition table (keyed by the board's incrementally
+maintained Zobrist hash), and killer-move/history-heuristic ordering for
+quiet moves. Still deliberately basic beyond that: no null-move pruning,
+no late-move reductions, no static-exchange evaluation.
 """
 from __future__ import annotations
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, Tuple
 from board import Board, Move, WHITE, piece_type, EMPTY
 from movegen import generate_legal_moves, generate_pseudo_legal_moves, is_capture
 from evaluate import evaluate, PIECE_VALUE
@@ -30,30 +29,39 @@ def _side_to_move_eval(board: Board) -> int:
     return score if board.to_move == WHITE else -score
 
 
-def _move_order_key(board: Board, move: Move) -> int:
-    """Higher is searched first. MVV-LVA for captures, promotions boosted."""
-    score = 0
-    if is_capture(board, move):
-        victim = board.squares[move.to_sq]
-        attacker = board.squares[move.from_sq]
-        victim_value = PIECE_VALUE[piece_type(victim)] if victim != EMPTY else PIECE_VALUE[1]  # EP capture: pawn
-        attacker_value = PIECE_VALUE[piece_type(attacker)]
-        score += 10_000 + victim_value * 10 - attacker_value
+# -- Move ordering -------------------------------------------------------
+#
+# Tiers, highest first: TT move, captures/promotions (MVV-LVA), killer
+# moves, then quiet moves ranked by history score. Each tier's score range
+# is kept well clear of its neighbors so there's no risk of e.g. a
+# long-accumulated history score drifting into killer or capture territory.
+
+TT_MOVE_SCORE = 1_000_000
+CAPTURE_BASE = 100_000
+PROMOTION_BASE = 90_000
+NUM_KILLERS = 2
+KILLER_SCORES = (89_000, 88_000)
+HISTORY_CAP = 50_000  # keeps history scores strictly below the killer tier
+
+
+def _mvv_lva_delta(board: Board, move: Move) -> int:
+    """MVV-LVA score for a capture: prefer taking the most valuable victim
+    with the least valuable attacker. Promotions (including capturing
+    promotions) get an extra bump."""
+    victim = board.squares[move.to_sq]
+    attacker = board.squares[move.from_sq]
+    victim_value = PIECE_VALUE[piece_type(victim)] if victim != EMPTY else PIECE_VALUE[1]  # EP capture: pawn
+    attacker_value = PIECE_VALUE[piece_type(attacker)]
+    delta = victim_value * 10 - attacker_value
     if move.promotion:
-        score += 5_000 + PIECE_VALUE[move.promotion]
-    return score
+        delta += PIECE_VALUE[move.promotion]
+    return delta
 
 
-def _ordered_moves(board: Board, moves: List[Move], tt_move: Optional[Move] = None) -> List[Move]:
-    """MVV-LVA/promotion ordering, with the transposition table's
-    remembered best move (if any) forced to the front -- it's usually the
-    best move here too, and searching it first is what lets alpha-beta
-    prune the rest of the list hardest."""
-    def key(m: Move) -> int:
-        if tt_move is not None and m == tt_move:
-            return 1_000_000
-        return _move_order_key(board, m)
-    return sorted(moves, key=key, reverse=True)
+def _ordered_captures(board: Board, captures: List[Move]) -> List[Move]:
+    """MVV-LVA ordering for a list already known to be all captures (used
+    by quiescence, which never sees quiet moves)."""
+    return sorted(captures, key=lambda m: _mvv_lva_delta(board, m), reverse=True)
 
 
 class SearchTimeout(Exception):
@@ -105,17 +113,67 @@ def _score_from_tt(score: int, ply: int) -> int:
 
 
 class Searcher:
-    def __init__(self, deadline: Optional[float] = None, tt: Optional[Dict[int, TTEntry]] = None):
+    def __init__(
+        self,
+        deadline: Optional[float] = None,
+        tt: Optional[Dict[int, TTEntry]] = None,
+        killers: Optional[Dict[int, List[Move]]] = None,
+        history: Optional[Dict[Tuple[int, int, int], int]] = None,
+    ):
         self.deadline = deadline
         self.stats = SearchStats()
-        # Shared across iterative-deepening depths (see find_best_move):
-        # a shallower iteration's results still narrow the next, deeper
-        # one's window and move ordering.
+        # All three are shared across iterative-deepening depths (see
+        # find_best_move): a shallower iteration's results still narrow
+        # the next, deeper one's window and move ordering.
         self.tt: Dict[int, TTEntry] = tt if tt is not None else {}
+        # ply -> up to NUM_KILLERS quiet moves that caused a beta cutoff
+        # there before. Ply-indexed rather than position-indexed: cheap,
+        # and quiet moves that work well at a given depth from the root
+        # tend to work well there again in a sibling line.
+        self.killers: Dict[int, List[Move]] = killers if killers is not None else {}
+        # (color, from_sq, to_sq) -> accumulated score, built up from
+        # quiet moves that caused cutoffs anywhere in the tree, weighted
+        # by depth^2 so cutoffs found deeper (rarer, more meaningful)
+        # count for more.
+        self.history: Dict[Tuple[int, int, int], int] = history if history is not None else {}
 
     def _check_time(self) -> None:
         if self.deadline is not None and time.time() > self.deadline:
             raise SearchTimeout()
+
+    def _move_order_key(self, board: Board, move: Move, ply: int, tt_move: Optional[Move]) -> int:
+        if tt_move is not None and move == tt_move:
+            return TT_MOVE_SCORE
+        if is_capture(board, move):
+            return CAPTURE_BASE + _mvv_lva_delta(board, move)
+        if move.promotion:
+            return PROMOTION_BASE + PIECE_VALUE[move.promotion]
+        killers = self.killers.get(ply)
+        if killers:
+            for i, killer in enumerate(killers):
+                if move == killer:
+                    return KILLER_SCORES[i]
+        key = (board.to_move, move.from_sq, move.to_sq)
+        return min(self.history.get(key, 0), HISTORY_CAP)
+
+    def _order_moves(self, board: Board, moves: List[Move], ply: int, tt_move: Optional[Move]) -> List[Move]:
+        return sorted(moves, key=lambda m: self._move_order_key(board, m, ply, tt_move), reverse=True)
+
+    def _record_cutoff(self, board: Board, move: Move, ply: int, depth: int) -> None:
+        """Called when `move` causes a beta cutoff. `board` must already
+        be back in the pre-move position (i.e. called after unmake_move)
+        so `is_capture` and `board.to_move` read the mover's perspective.
+        Captures/promotions are skipped: MVV-LVA already orders those
+        well, and mixing them into the quiet-move history table would
+        only dilute it."""
+        if is_capture(board, move) or move.promotion:
+            return
+        killers = self.killers.setdefault(ply, [])
+        if move not in killers:
+            killers.insert(0, move)
+            del killers[NUM_KILLERS:]
+        key = (board.to_move, move.from_sq, move.to_sq)
+        self.history[key] = self.history.get(key, 0) + depth * depth
 
     def quiescence(self, board: Board, alpha: int, beta: int, depth_left: int = 6) -> int:
         self.stats.qnodes += 1
@@ -129,7 +187,7 @@ class Searcher:
         if depth_left == 0:
             return alpha
         captures = [m for m in generate_pseudo_legal_moves(board) if is_capture(board, m)]
-        for move in _ordered_moves(board, captures):
+        for move in _ordered_captures(board, captures):
             mover = board.to_move
             board.make_move(move)
             try:
@@ -197,7 +255,7 @@ class Searcher:
 
         best = -INF
         best_move: Optional[Move] = None
-        for move in _ordered_moves(board, legal_moves, tt_move):
+        for move in self._order_moves(board, legal_moves, ply, tt_move):
             board.make_move(move)
             try:
                 score = -self.negamax(board, depth - 1, -beta, -alpha, ply + 1)
@@ -211,6 +269,7 @@ class Searcher:
             if best > alpha:
                 alpha = best
             if alpha >= beta:
+                self._record_cutoff(board, move, ply, depth)
                 break  # beta cutoff
 
         if best <= alpha_orig:
@@ -232,7 +291,7 @@ class Searcher:
         tt_move = tt_entry.best_move if tt_entry is not None else None
         best_move = legal_moves[0]
         best_score = -INF
-        for move in _ordered_moves(board, legal_moves, tt_move):
+        for move in self._order_moves(board, legal_moves, 0, tt_move):
             board.make_move(move)
             try:
                 score = -self.negamax(board, depth - 1, -beta, -alpha, 1)
@@ -262,12 +321,15 @@ def find_best_move(
     deadline = (time.time() + time_limit) if time_limit is not None else None
     best_move: Optional[Move] = None
     stats = SearchStats()
-    # One transposition table shared across all iterative-deepening depths
-    # for this call: each shallower depth's results seed move ordering
-    # (and sometimes outright cutoffs) for the next, deeper one.
+    # A transposition table, killer-move table, and history table, each
+    # shared across all iterative-deepening depths for this call: every
+    # shallower depth's results keep seeding move ordering (and sometimes
+    # outright cutoffs) for the next, deeper one.
     tt: Dict[int, TTEntry] = {}
+    killers: Dict[int, List[Move]] = {}
+    history: Dict[Tuple[int, int, int], int] = {}
     for depth in range(1, max_depth + 1):
-        searcher = Searcher(deadline=deadline, tt=tt)
+        searcher = Searcher(deadline=deadline, tt=tt, killers=killers, history=history)
         try:
             move, score = searcher.search_root(board, depth)
         except SearchTimeout:
